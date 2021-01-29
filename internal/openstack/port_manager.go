@@ -36,6 +36,7 @@ const (
 var (
 	ErrFloatingIPMissing = errors.New("Expected floating IP was not found")
 	ErrFixedIPMissing    = errors.New("Port has no IP address assigned")
+	ErrPortIsNil = errors.New("The port is nil")
 )
 
 // We need options which are not included in the default gophercloud struct
@@ -205,6 +206,7 @@ func (pm *OpenStackL3PortManager) deleteUnusedFloatingIPs() error {
 	toDelete := make([]string, 0)
 	err := pager.EachPage(func(page pagination.Page) (bool, error) {
 		fips, err := floatingipsv2.ExtractFloatingIPs(page)
+		klog.Warningf("Looking at floating ip %q (err: %s)", fips, err);
 		if err != nil {
 			return false, err
 		}
@@ -220,6 +222,8 @@ func (pm *OpenStackL3PortManager) deleteUnusedFloatingIPs() error {
 	// even in case of an error, we can at least try to delete the fips we
 	// already gathered
 	for _, fipID := range toDelete {
+		klog.Warningf("Deleting floating ip %q", fipID)
+		/*
 		deleteErr := floatingipsv2.Delete(pm.client, fipID).ExtractErr()
 		if deleteErr != nil {
 			klog.Warningf(
@@ -227,6 +231,7 @@ func (pm *OpenStackL3PortManager) deleteUnusedFloatingIPs() error {
 				fipID,
 				deleteErr.Error())
 		}
+		*/
 	}
 
 	return err
@@ -234,10 +239,10 @@ func (pm *OpenStackL3PortManager) deleteUnusedFloatingIPs() error {
 
 func (pm *OpenStackL3PortManager) CleanUnusedPorts(usedPorts []string) error {
 	ports, err := pm.cache.GetPorts()
+	klog.Warningf("Used ports: %s", usedPorts);
 	if err != nil {
 		return err
 	}
-
 	usedPortsMap := make(map[string]bool)
 	for _, portID := range usedPorts {
 		usedPortsMap[portID] = true
@@ -248,12 +253,14 @@ func (pm *OpenStackL3PortManager) CleanUnusedPorts(usedPorts []string) error {
 		if _, inUse := usedPortsMap[port.ID]; inUse {
 			continue
 		}
-
+		klog.Warningf("[Dummy] Deleting port %s", port.ID);
 		// port not in use, issue deletion
+		/*
 		err := portsv2.Delete(pm.client, port.ID).ExtractErr()
 		if err != nil {
 			klog.Warningf("Failed to delete unused port %q: %s. The operation will be retried later.", port.ID, err)
 		}
+		*/
 		anyDeleted = true
 	}
 
@@ -284,7 +291,9 @@ func (pm *OpenStackL3PortManager) GetExternalAddress(portID string) (string, str
 	if err != nil {
 		return "", "", err
 	}
-
+	if port == nil {
+		return "", "", ErrPortIsNil
+	}
 	if pm.cfg.UseFloatingIPs {
 		if fip == nil {
 			return "", "", ErrFloatingIPMissing
@@ -302,10 +311,13 @@ func (pm *OpenStackL3PortManager) GetExternalAddress(portID string) (string, str
 
 func (pm *OpenStackL3PortManager) GetInternalAddress(portID string) (string, error) {
 	port, _, err := pm.cache.GetPortByID(portID)
+	
 	if err != nil {
 		return "", err
 	}
-
+	if port == nil {
+		return "", ErrPortIsNil
+	}
 	if len(port.FixedIPs) == 0 {
 		return "", ErrFixedIPMissing
 	}
